@@ -1,6 +1,5 @@
 package com.sion.sionojcodesandbox.model;
 
-import com.sion.sionoj.model.dto.questionsubmit.JudgeInfo;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
 import lombok.Data;
