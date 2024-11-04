@@ -27,6 +27,7 @@ import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
 import java.util.UUID;
+import java.util.concurrent.TimeUnit;
 
 /**
  * @Author : wick
@@ -111,7 +112,7 @@ public class JavaDockerCodeSandbox implements CodeSandbox {
             try {
                 pullImageCmd
                         .exec(pullImageResultCallback)
-                        .awaitCompletion();
+                        .awaitCompletion(TIME_OUT, TimeUnit.MICROSECONDS);
             } catch (InterruptedException e) {
 
 
@@ -170,9 +171,20 @@ public class JavaDockerCodeSandbox implements CodeSandbox {
             final String[] message = {null};
             final String[] errorMessage = {null};
             long time = 0L;
+            // 判断是否超时
+            final boolean[] timeout = {true};
 
             String execId = execCreateCmdResponse.getId();
             ExecStartResultCallback execStartResultCallback = new ExecStartResultCallback() {
+
+                @Override
+                public void onComplete() {
+
+                    // 如果执行完成,则表示没超时
+                    timeout[0] =false;
+                    super.onComplete();
+                }
+
                 @Override
                 public void onNext(Frame frame) {
                     StreamType streamType = frame.getStreamType();
