@@ -125,6 +125,7 @@ public class JavaDockerCodeSandbox implements CodeSandbox {
         CreateContainerCmd containerCmd = dockerClient.createContainerCmd(image);
         HostConfig hostConfig = new HostConfig();
         hostConfig.withMemory(100 * 100 * 1000L);
+        hostConfig.withMemorySwap(0L);
         hostConfig.withCpuCount(1L);
         // 绑定本地路径到容器内路径，将 userCodeParentPath 绑定到容器中的 /app 目录
         hostConfig.setBinds(new Bind(userCodeParentPath, new Volume("/app")));
