@@ -141,6 +141,8 @@ public class JavaDockerCodeSandbox implements CodeSandbox {
                 .withAttachStdout(true)
                 // 启用容器的伪终端（TTY），使其具有交互功能
                 .withTty(true)
+                //启用容器配置,网络配置关闭
+                .withNetworkDisabled(true)
                 // 执行命令，创建容器
                 .exec();
         log.info("创建容器" + createContainerResponse);
