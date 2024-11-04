@@ -1,6 +1,7 @@
 package com.sion.sionojcodesandbox;
 
 import cn.hutool.core.date.StopWatch;
+import cn.hutool.core.io.FileUtil;
 import cn.hutool.core.io.resource.ResourceUtil;
 import cn.hutool.core.util.ArrayUtil;
 import com.github.dockerjava.api.DockerClient;
@@ -12,7 +13,9 @@ import com.github.dockerjava.core.command.ExecStartResultCallback;
 import com.sion.sionojcodesandbox.model.ExecuteCodeRequest;
 import com.sion.sionojcodesandbox.model.ExecuteCodeResponse;
 import com.sion.sionojcodesandbox.model.ExecuteMessage;
-import org.springframework.stereotype.Component;
+import com.sion.sionojcodesandbox.model.JudgeInfo;
+import com.sion.sionojcodesandbox.utils.ProcessUtils;
+import lombok.extern.slf4j.Slf4j;
 
 import java.io.Closeable;
 import java.io.File;
@@ -21,21 +24,29 @@ import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
+import java.util.UUID;
 import java.util.concurrent.TimeUnit;
 
 /**
  * @Author : wick
  * @Date : 2024/11/1 18:31
  */
-@Component
-public class JavaDockerCodeSandbox extends JavaCodeSandboxTemplate {
+@Slf4j
+public class JavaDockerCodeSandboxOld implements CodeSandbox {
+    private static final String GLOBAL_CODE_DIR_NAME = "tmpCode";
+
+    private static final String GLOBAL_JAVA_CLASS_NAME = "Main.java";
 
     private static final long TIME_OUT = 5000L;
 
-    private static final Boolean FIRST_INIT = true;
+    private static final String SECURITY_MANAGER_PATH = "/Users/wick/Documents/java项目/企业项目实战/OJ判题系统/sionoj-code-sandbox/sionoj-code-sandbox/src/main/resources/security";
+
+    private static final String SECURITY_MANAGER_CLASS_NAME = "MySecurityManager";
+
+    public static final Boolean FIRST_INIT = true;
 
     public static void main(String[] args) {
-        JavaDockerCodeSandbox javaNativeCodeSandbox = new JavaDockerCodeSandbox();
+        JavaDockerCodeSandboxOld javaNativeCodeSandbox = new JavaDockerCodeSandboxOld();
         ExecuteCodeRequest executeCodeRequest = new ExecuteCodeRequest();
         executeCodeRequest.setInputList(Arrays.asList("1 2", "1 3"));
         String code = ResourceUtil.readStr("testCode/simpleComputeArgs/Main.java", StandardCharsets.UTF_8);
@@ -47,71 +58,111 @@ public class JavaDockerCodeSandbox extends JavaCodeSandboxTemplate {
         System.out.println(executeCodeResponse);
     }
 
-    /**
-     * 3、创建容器，把文件复制到容器内
-     *
-     * @param userCodeFile
-     * @param inputList
-     * @return
-     */
     @Override
-    public List<ExecuteMessage> runFile(File userCodeFile, List<String> inputList) {
-        String userCodeParentPath = userCodeFile.getParentFile().getAbsolutePath();
-        // 获取默认的 Docker Client
+    public ExecuteCodeResponse executeCode(ExecuteCodeRequest executeCodeRequest) {
+        List<String> inputList = executeCodeRequest.getInputList();
+        String code = executeCodeRequest.getCode();
+        String language = executeCodeRequest.getLanguage();
+
+
+        // 1.用户的代码保存为文件
+        String userDir = System.getProperty("user.dir");
+        String globalCodePathName = userDir + File.separator + GLOBAL_CODE_DIR_NAME;
+        //判断全局代码目录是否存在,没有则新建
+        if (FileUtil.exist(globalCodePathName)) {
+            FileUtil.mkdir(globalCodePathName);
+        }
+
+        // 把用户的代码隔离存放
+        String userCodeParentPath = globalCodePathName + File.separator + UUID.randomUUID();
+        String userCodePath = userCodeParentPath + File.separator + GLOBAL_JAVA_CLASS_NAME;
+        File userCodeFile = FileUtil.writeString(code, userCodePath, StandardCharsets.UTF_8);
+
+        //2. 编译代码，得到 class 文件
+
+        String compileCmd = String.format("javac -encoding utf-8 %s", userCodeFile.getAbsolutePath());
+        try {
+            Process compileProcess = Runtime.getRuntime().exec(compileCmd);
+            ExecuteMessage executeMessage = ProcessUtils.runProcessAndGetMessage(compileProcess, "编译");
+            System.out.println(executeMessage);
+
+        } catch (Exception e) {
+            return getErrorResponse(e);
+        }
+
+        //3. 创建容器,把文件复制到容器内
+        // 获取默认的Docker Client
         DockerClient dockerClient = DockerClientBuilder.getInstance().build();
 
-        // 拉取镜像
+//        PingCmd pingCmd = dockerClient.pingCmd();
+//        pingCmd.exec();
         String image = "openjdk:8-alpine";
+        // 拉取镜像
         if (FIRST_INIT) {
             PullImageCmd pullImageCmd = dockerClient.pullImageCmd(image);
             PullImageResultCallback pullImageResultCallback = new PullImageResultCallback() {
                 @Override
                 public void onNext(PullResponseItem item) {
-                    System.out.println("下载镜像：" + item.getStatus());
+                    log.info("下载镜像" + item.getStatus());
                     super.onNext(item);
                 }
             };
             try {
                 pullImageCmd
                         .exec(pullImageResultCallback)
-                        .awaitCompletion();
+                        .awaitCompletion(TIME_OUT, TimeUnit.MICROSECONDS);
             } catch (InterruptedException e) {
-                System.out.println("拉取镜像异常");
-                throw new RuntimeException(e);
+
+
             }
+            log.info("下载完成");
         }
 
-        System.out.println("下载完成");
 
-        // 创建容器
-
+        //创建容器
         CreateContainerCmd containerCmd = dockerClient.createContainerCmd(image);
         HostConfig hostConfig = new HostConfig();
-        hostConfig.withMemory(100 * 1000 * 1000L);
+        hostConfig.withMemory(100 * 100 * 1000L);
         hostConfig.withMemorySwap(0L);
         hostConfig.withCpuCount(1L);
-        hostConfig.withSecurityOpts(Arrays.asList("seccomp=安全管理配置字符串"));
+        // 绑定本地路径到容器内路径，将 userCodeParentPath 绑定到容器中的 /app 目录
         hostConfig.setBinds(new Bind(userCodeParentPath, new Volume("/app")));
+
+        String profileConfig = ResourceUtil.readUtf8Str("profile.json");
+        hostConfig.withSecurityOpts(Arrays.asList("seccomp=" + profileConfig));
+
+        // 使用容器命令创建一个容器
         CreateContainerResponse createContainerResponse = containerCmd
                 .withHostConfig(hostConfig)
+                // 限制用户不能向root根目录写文件
                 .withNetworkDisabled(true)
                 .withReadonlyRootfs(true)
-                .withAttachStdin(true)
+                // 将标准错误输出附加到容器，以便捕获错误信息
                 .withAttachStderr(true)
+                // 将标准输入附加到容器，允许交互式命令
+                .withAttachStdin(true)
+                // 将标准输出附加到容器，捕获生成的输出
                 .withAttachStdout(true)
+                // 启用容器的伪终端（TTY），使其具有交互功能
                 .withTty(true)
+                //启用容器配置,网络配置关闭
+                .withNetworkDisabled(true)
+                // 执行命令，创建容器
                 .exec();
-        System.out.println(createContainerResponse);
+        log.info("创建容器" + createContainerResponse);
         String containerId = createContainerResponse.getId();
 
-        // 启动容器
+
+        //启动容器
         dockerClient.startContainerCmd(containerId).exec();
 
-        // docker exec keen_blackwell java -cp /app Main 1 3
-        // 执行命令并获取结果
-        List<ExecuteMessage> executeMessageList = new ArrayList<>();
+        //docker exec 25f83ec26e94 java -cp /app Main 1 3
+        // 执行命令获取结果
+        ArrayList<ExecuteMessage> executeMessageList = new ArrayList<>();
+
         for (String inputArgs : inputList) {
             StopWatch stopWatch = new StopWatch();
+
             String[] inputArgsArray = inputArgs.split(" ");
             String[] cmdArray = ArrayUtil.append(new String[]{"java", "-cp", "/app", "Main"}, inputArgsArray);
             ExecCreateCmdResponse execCreateCmdResponse = dockerClient.execCreateCmd(containerId)
@@ -120,20 +171,24 @@ public class JavaDockerCodeSandbox extends JavaCodeSandboxTemplate {
                     .withAttachStdin(true)
                     .withAttachStdout(true)
                     .exec();
-            System.out.println("创建执行命令：" + execCreateCmdResponse);
+            System.out.println("创建执行命令" + execCreateCmdResponse);
 
+            // 获取结果
             ExecuteMessage executeMessage = new ExecuteMessage();
             final String[] message = {null};
             final String[] errorMessage = {null};
             long time = 0L;
             // 判断是否超时
             final boolean[] timeout = {true};
+
             String execId = execCreateCmdResponse.getId();
             ExecStartResultCallback execStartResultCallback = new ExecStartResultCallback() {
+
                 @Override
                 public void onComplete() {
-                    // 如果执行完成，则表示没超时
-                    timeout[0] = false;
+
+                    // 如果执行完成,则表示没超时
+                    timeout[0] =false;
                     super.onComplete();
                 }
 
@@ -141,25 +196,24 @@ public class JavaDockerCodeSandbox extends JavaCodeSandboxTemplate {
                 public void onNext(Frame frame) {
                     StreamType streamType = frame.getStreamType();
                     if (StreamType.STDERR.equals(streamType)) {
+
                         errorMessage[0] = new String(frame.getPayload());
-                        System.out.println("输出错误结果：" + errorMessage[0]);
+                        System.out.println("输出错误结果: " + errorMessage[0]);
+
                     } else {
                         message[0] = new String(frame.getPayload());
-                        System.out.println("输出结果：" + message[0]);
+                        System.out.println("输出结果" + message[0]);
                     }
                     super.onNext(frame);
                 }
             };
-
+// 获取占用的内存
             final long[] maxMemory = {0L};
-
-            // 获取占用的内存
             StatsCmd statsCmd = dockerClient.statsCmd(containerId);
             ResultCallback<Statistics> statisticsResultCallback = statsCmd.exec(new ResultCallback<Statistics>() {
-
-                @Override
+                 @Override
                 public void onNext(Statistics statistics) {
-                    System.out.println("内存占用：" + statistics.getMemoryStats().getUsage());
+                    System.out.println("内存占用" + statistics.getMemoryStats().getUsage());
                     maxMemory[0] = Math.max(statistics.getMemoryStats().getUsage(), maxMemory[0]);
                 }
 
@@ -173,6 +227,8 @@ public class JavaDockerCodeSandbox extends JavaCodeSandboxTemplate {
 
                 }
 
+
+
                 @Override
                 public void onError(Throwable throwable) {
 
@@ -183,25 +239,49 @@ public class JavaDockerCodeSandbox extends JavaCodeSandboxTemplate {
 
                 }
             });
+
             statsCmd.exec(statisticsResultCallback);
+            statsCmd.close();
+
             try {
                 stopWatch.start();
-                dockerClient.execStartCmd(execId)
-                        .exec(execStartResultCallback)
-                        .awaitCompletion(TIME_OUT, TimeUnit.MICROSECONDS);
+                dockerClient.execStartCmd(execId).exec(execStartResultCallback).awaitCompletion();
                 stopWatch.stop();
                 time = stopWatch.getLastTaskTimeMillis();
-                statsCmd.close();
             } catch (InterruptedException e) {
                 System.out.println("程序执行异常");
                 throw new RuntimeException(e);
             }
+
             executeMessage.setMessage(message[0]);
             executeMessage.setErrorMessage(errorMessage[0]);
             executeMessage.setTime(time);
             executeMessage.setMemory(maxMemory[0]);
             executeMessageList.add(executeMessage);
         }
-        return executeMessageList;
+
+
+        //4. 收集整理输出结果
+
+        ExecuteCodeResponse executeCodeResponse = new ExecuteCodeResponse();
+        return executeCodeResponse;
     }
+
+
+    /**
+     * 获取错误响应
+     *
+     * @param e
+     * @return
+     */
+    private ExecuteCodeResponse getErrorResponse(Throwable e) {
+        ExecuteCodeResponse executeCodeResponse = new ExecuteCodeResponse();
+        executeCodeResponse.setOutputList(new ArrayList<>());
+        executeCodeResponse.setMessage(e.getMessage());
+        // 表示代码沙箱错误
+        executeCodeResponse.setStatus(2);
+        executeCodeResponse.setJudgeInfo(new JudgeInfo());
+        return executeCodeResponse;
+    }
+
 }
