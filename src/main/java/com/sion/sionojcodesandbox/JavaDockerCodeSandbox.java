@@ -130,9 +130,15 @@ public class JavaDockerCodeSandbox implements CodeSandbox {
         // 绑定本地路径到容器内路径，将 userCodeParentPath 绑定到容器中的 /app 目录
         hostConfig.setBinds(new Bind(userCodeParentPath, new Volume("/app")));
 
+        String profileConfig = ResourceUtil.readUtf8Str("profile.json");
+        hostConfig.withSecurityOpts(Arrays.asList("seccomp=" + profileConfig));
+
         // 使用容器命令创建一个容器
         CreateContainerResponse createContainerResponse = containerCmd
                 .withHostConfig(hostConfig)
+                // 限制用户不能向root根目录写文件
+                .withNetworkDisabled(true)
+                .withReadonlyRootfs(true)
                 // 将标准错误输出附加到容器，以便捕获错误信息
                 .withAttachStderr(true)
                 // 将标准输入附加到容器，允许交互式命令
