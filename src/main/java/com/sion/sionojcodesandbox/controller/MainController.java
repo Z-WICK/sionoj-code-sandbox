@@ -1,5 +1,6 @@
 package com.sion.sionojcodesandbox.controller;
 
+import com.sion.sionojcodesandbox.JavaDockerCodeSandbox;
 import com.sion.sionojcodesandbox.JavaNativeCodeSandbox;
 import com.sion.sionojcodesandbox.model.ExecuteCodeRequest;
 import com.sion.sionojcodesandbox.model.ExecuteCodeResponse;
@@ -27,6 +28,9 @@ public class MainController {
     @Resource
     private JavaNativeCodeSandbox javaNativeCodeSandbox;
 
+    @Resource
+    private JavaDockerCodeSandbox javaDockerCodeSandbox;
+
 
     @GetMapping("/health")
     public String health() {
@@ -47,7 +51,7 @@ public class MainController {
         if(executeCodeRequest == null){
             throw new RuntimeException("请求参数为空");
         }
-        return javaNativeCodeSandbox.executeCode(executeCodeRequest);
+        return javaDockerCodeSandbox.executeCode(executeCodeRequest);
     }
 
 }
