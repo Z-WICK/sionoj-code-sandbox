@@ -21,6 +21,7 @@ import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.Collections;
 import java.util.List;
 import java.util.concurrent.TimeUnit;
 
@@ -156,33 +157,39 @@ public class JavaDockerCodeSandbox extends JavaCodeSandboxTemplate {
                 }
             };
 
-            final long[] maxMemory = {0L};
+            final long[] maxMemory = {0L}; // 初始最大内存值
+            // 定义内存使用列表
+            List<Long> memoryUsageList = new ArrayList<>();
 
-            // 获取占用的内存
+
             StatsCmd statsCmd = dockerClient.statsCmd(containerId);
             ResultCallback<Statistics> statisticsResultCallback = statsCmd.exec(new ResultCallback<Statistics>() {
-
                 @Override
                 public void onNext(Statistics statistics) {
-                    System.out.println("内存占用：" + statistics.getMemoryStats().getUsage());
-                    maxMemory[0] = Math.max(statistics.getMemoryStats().getUsage(), maxMemory[0]);
+                    Long usage = statistics.getMemoryStats() != null ? statistics.getMemoryStats().getUsage() : null;
+
+                    if (usage != null) {
+                        System.out.println("内存占用：" + usage);
+
+                        // 将当前内存使用值添加到列表中
+                        memoryUsageList.add(usage);
+                    } else {
+                        System.out.println("无法获取内存占用信息（可能为 null 或容器已停止）");
+                    }
                 }
 
                 @Override
                 public void close() throws IOException {
-                    log.info("尝试关闭 获取内存占用 ");
+                    log.info("尝试关闭获取内存占用回调");
+                    // 停止容器和删除容器
                     try {
-                        // 停止容器
                         dockerClient.stopContainerCmd(containerId).exec();
                         System.out.println("容器已停止：" + containerId);
-
-                        // 删除容器
                         dockerClient.removeContainerCmd(containerId).exec();
                         System.out.println("容器已删除：" + containerId);
                     } catch (Exception e) {
                         System.out.println("停止或删除容器时发生异常：" + e.getMessage());
                     }
-
                 }
 
                 @Override
@@ -198,7 +205,6 @@ public class JavaDockerCodeSandbox extends JavaCodeSandboxTemplate {
                 @Override
                 public void onComplete() {
                     System.out.println("获取内存占用信息完成");
-
                 }
             });
             statsCmd.exec(statisticsResultCallback);
@@ -221,11 +227,15 @@ public class JavaDockerCodeSandbox extends JavaCodeSandboxTemplate {
                     System.out.println("关闭 statsCmd 回调失败：" + e.getMessage());
                 }
             }
+
+            // 获取内存最大值
+            Long maxMemoryUsage = Collections.max(memoryUsageList);
             executeMessage.setMessage(message[0]);
             executeMessage.setErrorMessage(errorMessage[0]);
             executeMessage.setTime(time);
-            executeMessage.setMemory(maxMemory[0]);
+            executeMessage.setMemory(maxMemoryUsage);
             executeMessageList.add(executeMessage);
+            System.out.println(executeMessage.getMemory());
         }
 
 
