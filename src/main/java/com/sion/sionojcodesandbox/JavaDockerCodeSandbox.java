@@ -158,9 +158,6 @@ public class JavaDockerCodeSandbox extends JavaCodeSandboxTemplate {
             };
 
             final long[] maxMemory = {0L}; // 初始最大内存值
-            // 定义内存使用列表
-            List<Long> memoryUsageList = new ArrayList<>();
-
 
             StatsCmd statsCmd = dockerClient.statsCmd(containerId);
             ResultCallback<Statistics> statisticsResultCallback = statsCmd.exec(new ResultCallback<Statistics>() {
@@ -171,8 +168,8 @@ public class JavaDockerCodeSandbox extends JavaCodeSandboxTemplate {
                     if (usage != null) {
                         System.out.println("内存占用：" + usage);
 
-                        // 将当前内存使用值添加到列表中
-                        memoryUsageList.add(usage);
+                        // 直接更新最大内存值
+                        maxMemory[0] = Math.max(usage, maxMemory[0]);
                     } else {
                         System.out.println("无法获取内存占用信息（可能为 null 或容器已停止）");
                     }
@@ -229,11 +226,10 @@ public class JavaDockerCodeSandbox extends JavaCodeSandboxTemplate {
             }
 
             // 获取内存最大值
-            Long maxMemoryUsage = Collections.max(memoryUsageList);
             executeMessage.setMessage(message[0]);
             executeMessage.setErrorMessage(errorMessage[0]);
             executeMessage.setTime(time);
-            executeMessage.setMemory(maxMemoryUsage);
+            executeMessage.setMemory(maxMemory[0]);
             executeMessageList.add(executeMessage);
             System.out.println(executeMessage.getMemory());
         }
