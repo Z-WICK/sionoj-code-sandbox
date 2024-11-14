@@ -12,6 +12,7 @@ import com.github.dockerjava.core.command.ExecStartResultCallback;
 import com.sion.sionojcodesandbox.model.ExecuteCodeRequest;
 import com.sion.sionojcodesandbox.model.ExecuteCodeResponse;
 import com.sion.sionojcodesandbox.model.ExecuteMessage;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Component;
 
 import java.io.Closeable;
@@ -27,6 +28,7 @@ import java.util.concurrent.TimeUnit;
  * @Author : wick
  * @Date : 2024/11/1 18:31
  */
+@Slf4j
 @Component
 public class JavaDockerCodeSandbox extends JavaCodeSandboxTemplate {
 
@@ -122,7 +124,10 @@ public class JavaDockerCodeSandbox extends JavaCodeSandboxTemplate {
                     .exec();
             System.out.println("创建执行命令：" + execCreateCmdResponse);
 
+            log.info("执行完成的响应信息： \n" + execCreateCmdResponse.toString());
+
             ExecuteMessage executeMessage = new ExecuteMessage();
+            // todo 为什么这里的信息为空
             final String[] message = {null};
             final String[] errorMessage = {null};
             long time = 0L;
@@ -165,21 +170,34 @@ public class JavaDockerCodeSandbox extends JavaCodeSandboxTemplate {
 
                 @Override
                 public void close() throws IOException {
+                    log.info("尝试关闭 获取内存占用 ");
+                    try {
+                        // 停止容器
+                        dockerClient.stopContainerCmd(containerId).exec();
+                        System.out.println("容器已停止：" + containerId);
+
+                        // 删除容器
+                        dockerClient.removeContainerCmd(containerId).exec();
+                        System.out.println("容器已删除：" + containerId);
+                    } catch (Exception e) {
+                        System.out.println("停止或删除容器时发生异常：" + e.getMessage());
+                    }
 
                 }
 
                 @Override
                 public void onStart(Closeable closeable) {
-
+                    System.out.println("开始获取内存占用信息");
                 }
 
                 @Override
                 public void onError(Throwable throwable) {
-
+                    System.out.println("获取内存占用信息失败：" + throwable.getMessage());
                 }
 
                 @Override
                 public void onComplete() {
+                    System.out.println("获取内存占用信息完成");
 
                 }
             });
@@ -188,13 +206,20 @@ public class JavaDockerCodeSandbox extends JavaCodeSandboxTemplate {
                 stopWatch.start();
                 dockerClient.execStartCmd(execId)
                         .exec(execStartResultCallback)
-                        .awaitCompletion(TIME_OUT, TimeUnit.MICROSECONDS);
+                        .awaitCompletion(TIME_OUT, TimeUnit.MILLISECONDS);
                 stopWatch.stop();
                 time = stopWatch.getLastTaskTimeMillis();
-                statsCmd.close();
+//                statsCmd.close();
             } catch (InterruptedException e) {
                 System.out.println("程序执行异常");
                 throw new RuntimeException(e);
+            } finally {
+                // 确保在异常或正常结束后关闭资源
+                try {
+                    statisticsResultCallback.close();
+                } catch (IOException e) {
+                    System.out.println("关闭 statsCmd 回调失败：" + e.getMessage());
+                }
             }
             executeMessage.setMessage(message[0]);
             executeMessage.setErrorMessage(errorMessage[0]);
@@ -202,6 +227,8 @@ public class JavaDockerCodeSandbox extends JavaCodeSandboxTemplate {
             executeMessage.setMemory(maxMemory[0]);
             executeMessageList.add(executeMessage);
         }
+
+
         return executeMessageList;
     }
 }
