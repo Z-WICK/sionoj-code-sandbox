@@ -3,6 +3,7 @@ package com.sion.sionojcodesandbox;
 import cn.hutool.core.date.StopWatch;
 import cn.hutool.core.io.resource.ResourceUtil;
 import cn.hutool.core.util.ArrayUtil;
+import cn.hutool.core.util.StrUtil;
 import com.github.dockerjava.api.DockerClient;
 import com.github.dockerjava.api.async.ResultCallback;
 import com.github.dockerjava.api.command.*;
@@ -12,6 +13,7 @@ import com.github.dockerjava.core.command.ExecStartResultCallback;
 import com.sion.sionojcodesandbox.model.ExecuteCodeRequest;
 import com.sion.sionojcodesandbox.model.ExecuteCodeResponse;
 import com.sion.sionojcodesandbox.model.ExecuteMessage;
+import com.sion.sionojcodesandbox.model.JudgeInfo;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Component;
 
@@ -21,7 +23,6 @@ import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.Arrays;
-import java.util.Collections;
 import java.util.List;
 import java.util.concurrent.TimeUnit;
 
@@ -231,10 +232,60 @@ public class JavaDockerCodeSandbox extends JavaCodeSandboxTemplate {
             executeMessage.setTime(time);
             executeMessage.setMemory(maxMemory[0]);
             executeMessageList.add(executeMessage);
-            System.out.println(executeMessage.getMemory());
         }
 
 
         return executeMessageList;
+    }
+
+
+    /**
+     * 5.获取输出结果
+     *
+     * @param executeMessageList
+     * @return {@link ExecuteCodeResponse }
+     */
+    @Override
+    public ExecuteCodeResponse getOutputResponse(List<ExecuteMessage> executeMessageList) {
+        JudgeInfo judgeInfo = new JudgeInfo();
+
+        ExecuteCodeResponse executeCodeResponse = new ExecuteCodeResponse();
+        List<String> outputList = new ArrayList<>();
+        //取用时最大值,便于判断是否超时
+        long maxTime = 0;
+        for (ExecuteMessage executeMessage : executeMessageList) {
+            String errorMessage = executeMessage.getErrorMessage();
+            if (StrUtil.isNotBlank(errorMessage)) {
+                executeCodeResponse.setMessage(errorMessage);
+                // 用户提交的代码执行中存在错误
+                // todo 设置枚举值
+                executeCodeResponse.setStatus(3);
+                break;
+            }
+            outputList.add(executeMessage.getMessage());
+            Long time = executeMessage.getTime();
+            if (time != null) {
+                maxTime = Math.max(maxTime, time);
+            }
+
+            //获取最大内存
+            judgeInfo.setMemory(executeMessage.getMemory());
+            //获取最大时间
+            judgeInfo.setTime(executeMessage.getTime());
+            //获取最大输出
+            judgeInfo.setMessage(executeMessage.getMessage());
+
+
+        }
+        // 正常运行完成
+        if (outputList.size() == executeMessageList.size()) {
+            // todo 设置枚举值
+            executeCodeResponse.setStatus(1);
+        }
+        executeCodeResponse.setOutputList(outputList);
+
+
+        executeCodeResponse.setJudgeInfo(judgeInfo);
+        return executeCodeResponse;
     }
 }
