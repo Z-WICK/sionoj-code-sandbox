@@ -196,6 +196,7 @@ public class JavaCodeSandboxTemplate implements CodeSandbox {
         JudgeInfo judgeInfo = new JudgeInfo();
         // todo 借助第三方库来获取内存占用 , 原生的过于麻烦算了吧
         //judgeInfo.setMemory();
+        System.out.println("模版方法不提供内存占用，请重写该方法");
 
         executeCodeResponse.setJudgeInfo(judgeInfo);
         return executeCodeResponse;
